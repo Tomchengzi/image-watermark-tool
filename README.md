@@ -4,7 +4,7 @@
 
 [English](./README_EN.md) | 简体中文
 
-![预览图](./screenshots/preview.png)
+![预览图](./preview.png)
 
 ## ✨ 特性
 
