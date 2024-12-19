@@ -114,25 +114,6 @@ numpy>=1.19.0
 - [Pillow](https://python-pillow.org/) - 图像处理库
 - [NumPy](https://numpy.org/) - 科学计算库
 
-## 📸 截图
-
-<table>
-  <tr>
-    <td><img src="screenshots/main.png" alt="主界面" width="400"/></td>
-    <td><img src="screenshots/text_preview.png" alt="文字水印预览" width="400"/></td>
-  </tr>
-  <tr>
-    <td><img src="screenshots/image_preview.png" alt="图片水印预览" width="400"/></td>
-    <td><img src="screenshots/settings.png" alt="设置界面" width="400"/></td>
-  </tr>
-</table>
-
-## 📞 联系方式
-
-如果你有任何问题或建议，欢迎通过以下方式联系：
-
-- Issue: [GitHub Issues](https://github.com/Karry-Almond/image-watermark-tool/issues)
-- Email: your.email@example.com
 
 ## 📝 更新日志
 
