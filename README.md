@@ -106,8 +106,7 @@ numpy>=1.19.0
 
 ## 📄 许可证
 
-[MIT](./LICENSE) © [Your Name]
-
+Red_Dusk
 ## 🙏 致谢
 
 - [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) - 现代化UI框架
