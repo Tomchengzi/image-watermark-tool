@@ -35,7 +35,7 @@ class WatermarkApp(ctk.CTk):
         self.default_font = ("Microsoft YaHei UI", 12)
         self.title_font = ("Microsoft YaHei UI", 14, "bold")
         
-        # 设置全局���题
+        # 设置全局颜色
         self.colors = {
             'bg': '#2b2b2b',
             'fg': '#ffffff',
@@ -148,12 +148,17 @@ class WatermarkApp(ctk.CTk):
         # 绑定鼠标事件用于拖动
         self.preview_canvas.bind("<ButtonPress-1>", self.start_move)
         self.preview_canvas.bind("<B1-Motion>", self.move_preview)
+        self.preview_canvas.bind("<ButtonRelease-1>", self.end_move)
         self.preview_canvas.bind("<MouseWheel>", self.mouse_wheel)
         
         # 初始化缩放比例
         self.zoom_scale = 1.0
         self.pan_x = 0
         self.pan_y = 0
+        self._drag_start_x = None
+        self._drag_start_y = None
+        self._drag_start_pan_x = 0
+        self._drag_start_pan_y = 0
 
     def create_control_panel(self):
         """改进的控制面板布局"""
@@ -285,6 +290,15 @@ class WatermarkApp(ctk.CTk):
         progress_frame = ctk.CTkFrame(parent)
         progress_frame.pack(fill="x", pady=5)
         
+        # 进度条控件
+        self.progress_bar = ctk.CTkProgressBar(progress_frame, height=16)
+        self.progress_bar.pack(fill="x", padx=5, pady=5)
+        self.progress_bar.set(0)
+        
+        # 进度文本
+        self.progress_label = ctk.CTkLabel(progress_frame, textvariable=self.progress_var)
+        self.progress_label.pack(fill="x", padx=5, pady=2)
+        
         # 预览导航按钮
         nav_frame = ctk.CTkFrame(progress_frame)
         nav_frame.pack(fill="x", pady=5)
@@ -367,9 +381,20 @@ class WatermarkApp(ctk.CTk):
         rgb_frame.pack(fill="x", pady=5)
         
         # 创建RGB滑块
-        self.color_r = self.create_color_slider(rgb_frame, "R", 0)
-        self.color_g = self.create_color_slider(rgb_frame, "G", 1)
-        self.color_b = self.create_color_slider(rgb_frame, "B", 2)
+        self.color_r_slider, self.color_r_label = self.create_color_slider(rgb_frame, "R", 0)
+        self.color_g_slider, self.color_g_label = self.create_color_slider(rgb_frame, "G", 1)
+        self.color_b_slider, self.color_b_label = self.create_color_slider(rgb_frame, "B", 2)
+        
+        # 添加颜色预览框
+        self.color_preview_frame = ctk.CTkLabel(
+            color_frame,
+            text="#000000\nRGB(0,0,0)",
+            fg_color="#000000",
+            corner_radius=5,
+            font=self.default_font,
+            width=150
+        )
+        self.color_preview_frame.pack(pady=5)
         
         
         # 初始状态设置
@@ -448,17 +473,25 @@ class WatermarkApp(ctk.CTk):
             )
         )
         
-        return slider
+        return slider, value_label
 
-    def update_color_preview(self):
+    def update_color_preview(self, *args):
         """更新颜色预览"""
         if not self.auto_color.get():
-            r = int(self.color_r.get())
-            g = int(self.color_g.get())
-            b = int(self.color_b.get())
+            r = int(self.color_r_slider.get())
+            g = int(self.color_g_slider.get())
+            b = int(self.color_b_slider.get())
             
             color = f'#{r:02x}{g:02x}{b:02x}'
-            self.color_preview.configure(fg_color=color)
+            self.color_preview_frame.configure(fg_color=color)
+            
+            # 更新颜色代码显示
+            hex_color = f"#{r:02x}{g:02x}{b:02x}"
+            rgb_color = f"RGB({r},{g},{b})"
+            self.color_preview_frame.configure(
+                text=f"{hex_color}\n{rgb_color}",
+                font=self.default_font
+            )
             
             # 更新预览
             self.preview_watermark()
@@ -533,6 +566,10 @@ class WatermarkApp(ctk.CTk):
             return
         
         # 获取当前预览图片路径
+        # 更新索引显示
+        total_files = len(image_files)
+        self.preview_index.configure(text=f"{self.current_preview_index + 1}/{total_files}")
+
         current_image = os.path.join(
             self.folder_path, 
             image_files[self.current_preview_index]
@@ -670,9 +707,9 @@ class WatermarkApp(ctk.CTk):
                 watermark_color, _ = self.analyze_background(image)
             else:
                 watermark_color = (
-                    int(self.color_r.get()),
-                    int(self.color_g.get()),
-                    int(self.color_b.get())
+                    int(self.color_r_slider.get()),
+                    int(self.color_g_slider.get()),
+                    int(self.color_b_slider.get())
                 )
             
             # 绘制每行文本
@@ -688,7 +725,7 @@ class WatermarkApp(ctk.CTk):
                 rotate_size = (int(image.size[0] * 1.5), int(image.size[1] * 1.5))
                 rotate_layer = Image.new('RGBA', rotate_size, (0, 0, 0, 0))
                 
-                # 将水印层粘贴到旋转画��中心
+                # 将水印层粘贴到旋转画布中心
                 paste_x = (rotate_size[0] - watermark_layer.size[0]) // 2
                 paste_y = (rotate_size[1] - watermark_layer.size[1]) // 2
                 rotate_layer.paste(watermark_layer, (paste_x, paste_y))
@@ -774,7 +811,7 @@ class WatermarkApp(ctk.CTk):
             return base_image
         
     def process_images(self):
-        """处理所有图片"""
+        """处理所有图片（线程安全，UI更新用after）"""
         try:
             folder = self.folder_path
             output_folder = self.output_folder
@@ -788,8 +825,8 @@ class WatermarkApp(ctk.CTk):
             total_files = len(image_files)
             
             if total_files == 0:
-                messagebox.showinfo("提示", "没有找到支持的图片文件")
-                self.processing = False
+                self.after(0, lambda: messagebox.showinfo("提示", "没有找到支持的图片文件"))
+                self.after(0, lambda: self.set_processing_state(False, "准备就绪", 0))
                 return
             
             for i, filename in enumerate(image_files, 1):
@@ -797,10 +834,8 @@ class WatermarkApp(ctk.CTk):
                     input_path = os.path.join(folder, filename)
                     output_path = os.path.join(output_folder, filename)  # 保持原文件名
                     
-                    # 更新进度
-                    self.progress_var.set(f"处理中... ({i}/{total_files})")
-                    self.progress_bar.set(i/total_files)
-                    self.update()
+                    # UI更新用after
+                    self.after(0, lambda i=i, total_files=total_files: self.set_processing_state(True, f"处理中... ({i}/{total_files})", i/total_files))
                     
                     # 处理图片
                     image = Image.open(input_path).convert("RGBA")
@@ -818,22 +853,24 @@ class WatermarkApp(ctk.CTk):
                         watermarked.save(output_path, quality=95)
                     
                 except Exception as e:
-                    messagebox.showerror("错误", f"处理文件 {filename} 时出错：{str(e)}")
+                    self.after(0, lambda filename=filename, e=e: messagebox.showerror("错误", f"处理文件 {filename} 时出错：{str(e)}"))
                     continue
             
-            self.progress_var.set("处理完成！")
-            self.progress_bar.set(1)
-            self.processing = False
-            messagebox.showinfo("完成", f"所有图片处理完成！\n输出目录：{output_folder}")
+            self.after(0, lambda: self.set_processing_state(False, "处理完成！", 1))
+            self.after(0, lambda: messagebox.showinfo("完成", f"所有图片处理完成！\n输出目录：{output_folder}"))
             
         except Exception as e:
-            messagebox.showerror("错误", f"处理过程出错：{str(e)}")
-            self.processing = False
+            self.after(0, lambda e=e: messagebox.showerror("错误", f"处理过程出错：{str(e)}"))
+            self.after(0, lambda: self.set_processing_state(False, "准备就绪", 0))
         finally:
-            self.progress_var.set("准备就绪")
-            self.progress_bar.set(0)
-            self.processing = False
-    
+            self.after(0, lambda: self.set_processing_state(False, "准备就绪", 0))
+
+    def set_processing_state(self, processing, progress_text, progress_value):
+        """线程安全地设置进度条和状态"""
+        self.processing = processing
+        self.progress_var.set(progress_text)
+        self.progress_bar.set(progress_value)
+
     def start_process(self):
         """开始处理图片"""
         if self.processing:
@@ -919,6 +956,10 @@ class WatermarkApp(ctk.CTk):
             self.color_r_slider.configure(state=state)
             self.color_g_slider.configure(state=state)
             self.color_b_slider.configure(state=state)
+            self.color_r_label.configure(state=state)
+            self.color_g_label.configure(state=state)
+            self.color_b_label.configure(state=state)
+            self.color_preview_frame.configure(state=state)
 
     def create_slider(self, from_, to, default):
         """创建统一样式的滑块"""
@@ -959,24 +1000,6 @@ class WatermarkApp(ctk.CTk):
         label.configure(text=f"{int(value)}")
         self.update_color_preview()
 
-    def update_color_preview(self, *args):
-        """更新颜色预览"""
-        if not self.auto_color.get():
-            r = int(self.color_r.get())
-            g = int(self.color_g.get())
-            b = int(self.color_b.get())
-            
-            color = f'#{r:02x}{g:02x}{b:02x}'
-            self.color_preview_frame.configure(fg_color=color)
-            
-            # 更新颜色代码显示
-            hex_color = f"#{r:02x}{g:02x}{b:02x}"
-            rgb_color = f"RGB({r},{g},{b})"
-            self.color_preview_frame.configure(
-                text=f"{hex_color}\n{rgb_color}",
-                font=self.default_font
-            )
-
     def on_watermark_type_change(self):
         """处理水印类型切换"""
         if self.watermark_type.get() == "text":
@@ -1013,16 +1036,25 @@ class WatermarkApp(ctk.CTk):
 
     def start_move(self, event):
         """开始移动预览图片"""
-        self.preview_canvas.scan_mark(event.x, event.y)
+        self._drag_start_x = event.x
+        self._drag_start_y = event.y
+        self._drag_start_pan_x = self.pan_x
+        self._drag_start_pan_y = self.pan_y
 
     def move_preview(self, event):
         """移动预览图片"""
-        self.preview_canvas.scan_dragto(event.x, event.y, gain=1)
-        # 更新平移位置
-        self.pan_x += (event.x - self._last_x) if hasattr(self, '_last_x') else 0
-        self.pan_y += (event.y - self._last_y) if hasattr(self, '_last_y') else 0
-        self._last_x = event.x
-        self._last_y = event.y
+        if self._drag_start_x is not None and self._drag_start_y is not None:
+            dx = event.x - self._drag_start_x
+            dy = event.y - self._drag_start_y
+            self.pan_x = self._drag_start_pan_x + dx
+            self.pan_y = self._drag_start_pan_y + dy
+            if hasattr(self, 'current_preview') and self.current_preview:
+                self.update_preview(self.current_preview)
+
+    def end_move(self, event):
+        """结束拖动，清理临时变量"""
+        self._drag_start_x = None
+        self._drag_start_y = None
 
     def mouse_wheel(self, event):
         """鼠标滚轮缩放"""
